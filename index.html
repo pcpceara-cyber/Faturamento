@@ -781,7 +781,7 @@ function renderStatus(digitando){
 }
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.hidden=false; clearTimeout(tToast); tToast=setTimeout(()=>t.hidden=true,3200); }
 function modal(html){ $('#mbox').innerHTML=html; $('#modal').hidden=false; }
-function fechar(){ $('#modal').hidden=true; $('#mbox').innerHTML=''; }
+function fechar(){ $('#modal').hidden=true; $('#mbox').innerHTML=''; try{ if(leitor.ativo && leitor.pausado) leitor.liberar(); }catch(e){} }
 $('#modal').addEventListener('click',e=>{ if(e.target.id==='modal') fechar(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape' && !$('#modal').hidden) fechar(); });
 /* ---------- o que já está igual no servidor (para mandar só o que mudou) ---------- */
@@ -1108,6 +1108,8 @@ class Leitor{
   async _loop(){
     while(this.ativo){
       const v = this.video;
+      // segurança: se a leitura ficou pausada sem nenhuma janela aberta, volta a ler sozinha
+      if(this.pausado && this.pausadoEm && Date.now() - this.pausadoEm > 2500 && document.getElementById('modal').hidden) this.pausado = false;
       if(v && v.readyState >= 2 && v.videoWidth && !this.pausado){
         const vw = v.videoWidth, vh = v.videoHeight;
         const cw = Math.round(vw * 0.9), ch = Math.round(Math.min(vh * 0.5, cw * 0.6));
@@ -1132,10 +1134,10 @@ class Leitor{
     if(mesmo) this.vistoEm = agora;
     if(this.pausado || !this.cb) return;
     if(mesmo && (agora - this.ult.t < MIN_REPETIR_MS || sumiuHa < AUSENTE_MS)) return;
-    this.ult = { c: t, t: agora }; this.vistoEm = agora; this.pausado = true;
+    this.ult = { c: t, t: agora }; this.vistoEm = agora; this.pausado = true; this.pausadoEm = agora;
     this.cb(t);
   }
-  liberar(ms){ setTimeout(() => { this.pausado = false; }, ms == null ? PAUSA_OK : ms); }
+  liberar(ms){ const t = this.pausadoEm; setTimeout(() => { if(this.pausadoEm === t) this.pausado = false; }, ms == null ? PAUSA_OK : ms); }
   parar(){
     this.ativo = false; this.pausado = false; this.cb = null;
     try{ if(this.stream) this.stream.getTracks().forEach(t => t.stop()); }catch(e){}
@@ -1870,6 +1872,8 @@ $('#abasPlan').addEventListener('click',e=>{ const b=e.target.closest('button[da
    Produtos sem código aqui só podem ser lançados manualmente com PIN de administrador. */
 /* Códigos de barras: vêm da aba Codigos da planilha. Produto sem código só entra com lançamento manual (PIN de administrador). */
 const temCodigo = k => Object.values(CODIGOS).includes(k);
+const semZeros = c => /^\d+$/.test(c) ? c.replace(/^0+/, '') : c;
+function codigoCadastrado(cod){ cod = String(cod || '').trim(); if(CODIGOS[cod]) return cod; const n = semZeros(cod); return Object.keys(CODIGOS).find(c => semZeros(c) === n) || cod; }
 let ADMINS = [];
 let marSel = null, marAba = 'fazer', marBusca = '', marUlt = null;
 const camWrap = document.createElement('div'); camWrap.className = 'mar-leitor';
@@ -2033,6 +2037,7 @@ function renderMarPedido({ r, tp }){
 function marCodigo(cod){
   const x = marSel ? marAchar(marSel) : null;
   if(!x || statusDe(x.r) !== 'andamento'){ leitor.liberar(); return; }
+  cod = codigoCadastrado(cod);
   const { r, tp } = x, k = CODIGOS[cod];
   if(!k){
     marUlt = { id: r.id, ok: false, msg: 'Código ' + cod + ' não está cadastrado. Esta caixa não foi contada.', cod };
